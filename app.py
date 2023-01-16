@@ -11,19 +11,32 @@ from typing import Awaitable, Callable, Union
 
 
 load_dotenv()
+
+
+class Config:
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "")
+    P1_ADDRESS = os.getenv("P1_ADDRESS", "")
+    P1_PORT = int(os.getenv("P1_PORT", 2000))
+    MQTT_BROKER = os.getenv("MQTT_BROKER", "")
+    MQTT_TOPIC = os.getenv("MQTT_TOPIC", "")
+    MQTT_USER = os.getenv("MQTT_USER", "")
+    MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+    INTERVAL = int(os.getenv("INTERVAL", 5))
+
+
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S%z",
-    level=logging.DEBUG if os.getenv("LOG_LEVEL") == "DEBUG" else logging.INFO,
+    level=logging.DEBUG if Config.LOG_LEVEL == "DEBUG" else logging.INFO,
 )
 
 
-P1_ADDRESS: str = os.getenv("P1_ADDRESS", "")
 obis: list = json.load(open(os.path.join(os.path.dirname(__file__), "obis.json")))[
     "obis_fields"
 ]
 mqtt_client = mqtt.Client()
-mqtt_client.connect(os.getenv("MQTT_BROKER"), 1883, 60)
+mqtt_client.username_pw_set(Config.MQTT_USER, Config.MQTT_PASSWORD)
+mqtt_client.connect(Config.MQTT_BROKER, 1883, 60)
 mqtt_client.loop_start()
 
 
@@ -115,7 +128,9 @@ async def send_telegram(telegram: list[bytes]) -> None:
                 )
     try:
         result = mqtt_client.publish(
-            os.getenv("MQTT_TOPIC"), payload=json.dumps(telegram_formatted), retain=True
+            Config.MQTT_TOPIC,
+            payload=json.dumps(telegram_formatted),
+            retain=True,
         )
         if result.rc == 0:
             logging.info("Telegram published on MQTT")
@@ -154,7 +169,7 @@ async def process_lines(reader):
 async def read_telegram():
     reader: StreamReader
     writer: StreamWriter
-    reader, writer = await asyncio.open_connection(P1_ADDRESS, 2000)
+    reader, writer = await asyncio.open_connection(Config.P1_ADDRESS, Config.P1_PORT)
     try:
         await process_lines(reader)
     except Exception as err:
@@ -169,13 +184,13 @@ async def read_p1():
             return await asyncio.wait_for(awaitable(), timeout=timeout)
         except Exception as err:
             logging.error(
-                f"Unable to read data from {P1_ADDRESS}: {str(err) or err.__class__.__name__}"
+                f"Unable to read data from {Config.P1_ADDRESS}: {str(err) or err.__class__.__name__}"
             )
 
     while True:
         logging.info("Read P1 reader")
         await asyncio.gather(
-            asyncio.sleep(int(os.getenv("INTERVAL", 5))),
+            asyncio.sleep(Config.INTERVAL),
             timeout(read_telegram, timeout=10),
         )
 
